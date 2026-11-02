@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tostao-abastecimiento"
+version = "1.0.0"
+description = "Pronóstico de demanda y optimización de pedidos (Caso A, Tostao)"
+requires-python = ">=3.9"
+dependencies = ["numpy", "pandas>=1.5", "scipy", "scikit-learn>=1.1"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
