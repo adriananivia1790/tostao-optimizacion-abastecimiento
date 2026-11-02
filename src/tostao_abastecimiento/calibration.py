@@ -8,10 +8,13 @@ no depende de supuestos de forma.
 """
 from __future__ import annotations
 
-from typing import Dict
+from typing import Dict, Sequence
 
 import numpy as np
 import pandas as pd
+from scipy.stats import norm
+
+from .config import CV_DIARIO
 
 
 class CalibradorCuantiles:
@@ -104,3 +107,68 @@ def cobertura_secuencial(semanal: pd.DataFrame, columna_pronostico: str, semanas
     filas = [{"nivel_nominal": t, "cobertura_observada": float(np.concatenate(a).mean())}
              for t, a in aciertos.items()]
     return pd.DataFrame(filas).set_index("nivel_nominal")
+
+
+def perdida_cuantil(real: np.ndarray, cuantil: np.ndarray, tau: float) -> float:
+    """Pérdida de cuantil (pinball) promedio para el nivel `tau`.
+
+    Si la demanda real supera al cuantil (faltante), la pérdida es τ × diferencia; si queda
+    por debajo (sobrante), es (1 − τ) × diferencia. Menor es mejor; sirve para comparar
+    métodos de incertidumbre entre sí, no tiene escala absoluta.
+    """
+    d = np.asarray(real, dtype=float) - np.asarray(cuantil, dtype=float)
+    return float(np.mean(np.maximum(tau * d, (tau - 1) * d)))
+
+
+def comparar_incertidumbre(bt: pd.DataFrame, columna_pronostico: str, cv_diario: float = CV_DIARIO,
+                           semanas_minimas: int = 2,
+                           taus: Sequence[float] = (0.5, 0.8, 0.9, 0.95)) -> pd.DataFrame:
+    """Compara tres formas de calcular el cuantil de la demanda semanal, fuera de muestra.
+
+    Métodos:
+        - ``normal``: pronóstico + z × desviación, con ruido diario independiente (CV diario fijo).
+        - ``empirica_global``: venta relativa (real ÷ pronóstico) de semanas anteriores, sin grupos.
+        - ``empirica_por_volumen``: lo mismo, por terciles de volumen (la que usa el pedido).
+
+    Cada semana se calibra solo con las anteriores (mínimo `semanas_minimas`), y todos los
+    métodos se evalúan sobre las mismas semanas y SKU-tienda.
+
+    Args:
+        bt: backtest diario (salida de `backtest_origen_movil`) con `semana`, `unidades_vendidas`
+            y la columna del pronóstico diario.
+        columna_pronostico: columna con el pronóstico diario del modelo.
+        cv_diario: coeficiente de variación diario del método normal.
+        semanas_minimas: semanas previas necesarias para calibrar.
+        taus: niveles a evaluar.
+
+    Returns:
+        Una fila por método y nivel, con cobertura observada, pérdida de cuantil y su
+        diferencia de cobertura frente al nivel nominal.
+    """
+    d = bt.assign(_p2=bt[columna_pronostico] ** 2)
+    sem = (d.groupby(["id_tienda", "id_producto", "semana"], as_index=False)
+             .agg(real=("unidades_vendidas", "sum"), mu=(columna_pronostico, "sum"), ss=("_p2", "sum")))
+    semanas = sorted(sem["semana"].unique())
+    acumulado = {(m, t): ([], []) for m in ("normal", "empirica_global", "empirica_por_volumen")
+                 for t in taus}
+    for w in semanas[semanas_minimas:]:
+        prev, act = sem[sem["semana"] < w], sem[sem["semana"] == w]
+        mu = act["mu"].to_numpy()
+        sd = cv_diario * np.sqrt(act["ss"].to_numpy())
+        cal_g = CalibradorCuantiles(n_grupos=1).ajustar(prev["real"], prev["mu"])
+        cal_v = CalibradorCuantiles().ajustar(prev["real"], prev["mu"])
+        real = act["real"].to_numpy()
+        for t in taus:
+            q = {"normal": np.maximum(mu + norm.ppf(t) * sd, 0),
+                 "empirica_global": cal_g.cuantil_demanda(np.full(len(act), t), mu),
+                 "empirica_por_volumen": cal_v.cuantil_demanda(np.full(len(act), t), mu)}
+            for m, qm in q.items():
+                acumulado[(m, t)][0].append(real)
+                acumulado[(m, t)][1].append(qm)
+    filas = []
+    for (m, t), (reales, cuantiles) in acumulado.items():
+        r, q = np.concatenate(reales), np.concatenate(cuantiles)
+        filas.append({"metodo": m, "nivel_nominal": t, "cobertura_observada": cobertura_empirica(r, q),
+                      "error_de_cobertura": cobertura_empirica(r, q) - t,
+                      "perdida_cuantil": perdida_cuantil(r, q, t)})
+    return pd.DataFrame(filas)

@@ -24,6 +24,9 @@ PRIMERA_SEMANA_PRUEBA: int = 6
 # Variables de rezago (en días). Todas son >= 7 para no mirar el futuro.
 REZAGOS: Tuple[int, ...] = (7, 14, 21, 28)
 
+# Variables extra que se prueban en el notebook 02 (experimentos de mejora).
+COLUMNAS_EXTRA: Tuple[str, ...] = ("tamano_m2", "ciudad_cod", "tendencia_rm")
+
 # Variables del modelo final (conjunto "C" de la ablación H12 del EDA).
 COLUMNAS_CATEGORICAS: Tuple[str, ...] = ("dow", "tienda_cod", "producto_cod")
 COLUMNAS_MODELO: Tuple[str, ...] = (

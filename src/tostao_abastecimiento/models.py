@@ -76,3 +76,64 @@ class ModeloPoissonGBM:
 
     def predict(self, df: pd.DataFrame) -> np.ndarray:
         return np.clip(self.modelo_.predict(df[self.columnas].astype(float)), 0, None)
+
+
+class PromedioModelos:
+    """Ensamble simple: promedio de los pronósticos de varios modelos.
+
+    Args:
+        fabricas: funciones sin argumentos que devuelven cada modelo (con `fit` y `predict`).
+    """
+
+    def __init__(self, fabricas: Sequence) -> None:
+        self.fabricas = list(fabricas)
+
+    def fit(self, df: pd.DataFrame) -> "PromedioModelos":
+        self.modelos_ = [f().fit(df) for f in self.fabricas]
+        return self
+
+    def predict(self, df: pd.DataFrame) -> np.ndarray:
+        return np.mean([m.predict(df) for m in self.modelos_], axis=0)
+
+
+class ModeloPorSegmento:
+    """Un modelo distinto por segmento de volumen (terciles del nivel reciente `rm28`).
+
+    Prueba la idea de que los productos de poca y mucha venta se comportan distinto. Si un
+    segmento tiene pocas filas de entrenamiento, usa el modelo global.
+
+    Args:
+        fabrica: función sin argumentos que devuelve un modelo nuevo.
+        n_grupos: número de segmentos.
+        columna: variable que define el volumen.
+        minimo_filas: filas mínimas de un segmento para entrenar su propio modelo.
+    """
+
+    def __init__(self, fabrica, n_grupos: int = 3, columna: str = "rm28", minimo_filas: int = 500) -> None:
+        self.fabrica = fabrica
+        self.n_grupos = n_grupos
+        self.columna = columna
+        self.minimo_filas = minimo_filas
+
+    def _grupo(self, df: pd.DataFrame) -> np.ndarray:
+        nivel = df[self.columna].fillna(self.mediana_).to_numpy(dtype=float)
+        return np.searchsorted(self.cortes_, nivel)
+
+    def fit(self, df: pd.DataFrame) -> "ModeloPorSegmento":
+        self.mediana_ = float(df[self.columna].median())
+        self.cortes_ = np.nanquantile(df[self.columna].to_numpy(dtype=float),
+                                      np.linspace(0, 1, self.n_grupos + 1)[1:-1])
+        grupo = self._grupo(df)
+        self.global_ = self.fabrica().fit(df)
+        self.modelos_ = {g: (self.fabrica().fit(df[grupo == g]) if (grupo == g).sum() >= self.minimo_filas
+                             else self.global_) for g in range(self.n_grupos)}
+        return self
+
+    def predict(self, df: pd.DataFrame) -> np.ndarray:
+        grupo = self._grupo(df)
+        salida = np.empty(len(df))
+        for g, modelo in self.modelos_.items():
+            sel = grupo == g
+            if sel.any():
+                salida[sel] = modelo.predict(df[sel])
+        return salida

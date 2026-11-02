@@ -73,3 +73,18 @@ def dividir_historia_futuro(panel: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataF
     """Separa las filas con ventas observadas de las filas a pronosticar."""
     con_ventas = panel["unidades_vendidas"].notna()
     return panel[con_ventas].copy(), panel[~con_ventas].copy()
+
+
+def agregar_variables_extra(panel: pd.DataFrame, datos: DatosCasoA) -> pd.DataFrame:
+    """Agrega variables para los experimentos de mejora (no entran al modelo base).
+
+    - ``tamano_m2``: tamaño de la tienda (`maestro_tiendas`).
+    - ``ciudad_cod``: ciudad de la tienda como código numérico.
+    - ``tendencia_rm``: nivel de la última semana ÷ nivel de las últimas 4 semanas (`rm7 / rm28`).
+    """
+    t = datos.tiendas.set_index("id_tienda")
+    out = panel.copy()
+    out["tamano_m2"] = out["id_tienda"].map(t["tamaño_m2"]).astype(float)
+    out["ciudad_cod"] = pd.Categorical(out["id_tienda"].map(t["ciudad"])).codes.astype(float)
+    out["tendencia_rm"] = out["rm7"] / out["rm28"].replace(0, np.nan)
+    return out
