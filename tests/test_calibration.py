@@ -21,3 +21,21 @@ def test_cuantil_es_creciente_en_tau():
     q50 = cal.cuantil_demanda(np.full(2000, 0.5), pron)
     q90 = cal.cuantil_demanda(np.full(2000, 0.9), pron)
     assert (q90 >= q50).all()
+
+
+def test_perdida_cuantil_es_asimetrica():
+    from tostao_abastecimiento.calibration import perdida_cuantil
+    # cuantil 0.9: faltar por 10 duele 9; sobrar por 10 duele 1
+    assert abs(perdida_cuantil([110], [100], 0.9) - 9.0) < 1e-9
+    assert abs(perdida_cuantil([90], [100], 0.9) - 1.0) < 1e-9
+
+
+def test_comparar_incertidumbre_devuelve_tres_metodos(datos_sinteticos):
+    from tostao_abastecimiento.calibration import comparar_incertidumbre
+    from tostao_abastecimiento.features import construir_panel
+    from tostao_abastecimiento.models import PerfilPorNivel
+    from tostao_abastecimiento.validation import backtest_origen_movil
+    bt = backtest_origen_movil(construir_panel(datos_sinteticos), {"perfil": PerfilPorNivel})
+    r = comparar_incertidumbre(bt, "perfil")
+    assert set(r["metodo"]) == {"normal", "empirica_global", "empirica_por_volumen"}
+    assert len(r) == 12 and r["perdida_cuantil"].gt(0).all()
