@@ -19,8 +19,8 @@ Prueba técnica para Subgerente de Data. El proyecto pronostica la demanda seman
 Requiere Python 3.10 o superior.
 
 ```bash
-git clone https://github.com/adriananivia1790/<nombre-del-repo>.git
-cd <nombre-del-repo>
+git clone https://github.com/adriananivia1790/tostao-optimizacion-abastecimiento.git
+cd tostao-optimizacion-abastecimiento
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
@@ -69,10 +69,10 @@ datos ──► data.py ──► features.py ──► validation.py (backtest 
 |---|---|
 | `config.py` | Constantes y supuestos declarados (α por producto, margen cruzado, fechas). |
 | `data.py` | Carga y validación de las tablas del Caso A. |
-| `features.py` | Panel SKU-tienda-día y variables sin fuga de información (rezagos, promedios y medias móviles al domingo previo). |
-| `models.py` | Naive (misma semana pasada), media de 4 semanas del mismo día, perfil × nivel y gradient boosting con pérdida de Poisson. |
+| `features.py` | Panel SKU-tienda-día y variables sin fuga de información (rezagos, promedios y medias móviles al domingo previo); variables extra para los experimentos. |
+| `models.py` | Naive (misma semana pasada), media de 4 semanas del mismo día, perfil × nivel y gradient boosting con pérdida de Poisson; ensamble y modelo por segmento de volumen (experimentos). |
 | `validation.py` | WAPE, semanas de prueba y backtest de origen móvil (semanas 6 a 13). |
-| `calibration.py` | Cuantiles de la demanda a partir del error relativo semanal del backtest, por terciles de volumen; cobertura secuencial fuera de muestra. |
+| `calibration.py` | Cuantiles de la demanda a partir del error relativo semanal del backtest, por terciles de volumen; cobertura secuencial fuera de muestra; pérdida de cuantil (pinball) y comparación normal vs. empírica. |
 | `optimizer.py` | Cu, Co, ratio crítico τ y pedido = máx(0, Q\*(τ) − stock − en tránsito); incertidumbre normal o empírica. |
 | `simulacion.py` | Costo de cada política de pedido sobre las semanas de prueba. |
 | `sensibilidad.py` | Escenarios de lead time, revisión, tránsito, α, β, empaque y capacidad. |
