@@ -11,7 +11,7 @@ Prueba técnica para Subgerente de Data. El proyecto pronostica la demanda seman
 | `notebooks/03_optimizacion_costos.ipynb` | Pedido óptimo, simulación de costos contra reglas simples y sensibilidad a los parámetros que no vienen en los datos. |
 | `src/tostao_abastecimiento/` | Código modular con tipos y docstrings (ver arquitectura). |
 | `scripts/generar_pedido.py` | Ejecuta todo el flujo desde la terminal y escribe los CSV de salida. |
-| `tests/` | Pruebas unitarias (incluye una contra fuga de información). |
+| `tests/` | Pruebas unitarias con datos sintéticos (incluye una contra fuga de información) y una prueba de punta a punta con los CSV reales. |
 | `outputs/` | Resultados generados: `pronostico_semanal.csv`, `pedido_semana.csv`, `metricas_backtest.csv`, `simulacion_costos.csv`. |
 
 ## Instalación
@@ -48,8 +48,36 @@ Imprime las métricas del backtest, la cobertura fuera de muestra de los cuantil
 **Pruebas:**
 
 ```bash
-pytest
+pytest                                  # unitarias, con datos sintéticos
+pytest tests/test_datos_reales.py -v    # punta a punta con los CSV reales (se omite si no están)
 ```
+
+## Qué entrega el flujo
+
+Los resultados quedan en `outputs/`:
+
+| Archivo | Contenido | Uso |
+|---|---|---|
+| `pedido_semana.csv` | Por tienda y producto: stock actual, demanda esperada del horizonte, τ (nivel de cobertura del producto), cantidad objetivo, **pedido recomendado** y venta perdida inevitable | Compras y abastecimiento |
+| `pronostico_semanal.csv` | Pronóstico semanal con rango: media, P10, P50 y P90 | Planeación |
+| `metricas_backtest.csv` | Error (WAPE) de cada modelo en el backtest | Seguimiento de calidad |
+| `simulacion_costos.csv` | Costo, nivel de servicio y sobrante de cada política de pedido | Caso de negocio |
+
+Para conectarlo a otro sistema basta con alimentar los 4 CSV de entrada (ventas, inventario, catálogo y tiendas) y consumir `pedido_semana.csv`. La integración automática con un ERP o con el inventario no está incluida; es un siguiente paso.
+
+## Resultados principales
+
+Con los datos del Caso A (backtest de 8 semanas, pedido para el 1 al 7 de abril de 2024):
+
+| Indicador | Resultado |
+|---|---|
+| WAPE diario: naive / media 4 semanas / perfil × nivel / boosting | 0.342 / 0.274 / 0.261 / 0.261 |
+| Cobertura fuera de muestra de los cuantiles 0.8 / 0.9 / 0.95 | 0.805 / 0.905 / 0.948 |
+| Costo simulado (6 semanas): Newsvendor frente a pedir lo de la semana pasada | −33.6 % |
+| Newsvendor frente a la media de 4 semanas / a un nivel de servicio fijo de 0.90 | −25 % / −16 % |
+| Pedido recomendado | 15,453 unidades en 158 de 160 SKU-tienda |
+
+Los costos usan supuestos (α, β, márgenes) y las políticas se evalúan con los mismos Cu y Co con los que se optimiza el Newsvendor; el ahorro es la ventaja bajo esos supuestos, no una medición del costo real.
 
 ## Arquitectura
 
@@ -81,16 +109,18 @@ datos ──► data.py ──► features.py ──► validation.py (backtest 
 ## Decisiones principales
 
 - **Validación fuera de muestra siempre.** Cada semana se pronostica con un modelo entrenado solo con las anteriores. Se reporta el WAPE medio y su desviación entre semanas (8 pliegues).
-- **Referencias simples primero.** El modelo de boosting solo se prefiere si supera a la media de 4 semanas por más que la desviación entre semanas y en la mayoría de las semanas (regla impresa en el notebook 02).
+- **Referencias simples primero.** El boosting se compara contra la media de 4 semanas y contra el perfil × nivel (regla impresa en el notebook 02). Con estos datos mejora a la media de 4 semanas, pero empata con el perfil × nivel (WAPE 0.261 en ambos); se mantiene el boosting como modelo de trabajo y se deja documentado que existe una alternativa más simple con el mismo error.
 - **Pérdida de Poisson** porque la demanda son conteos no negativos con varianza que crece con el nivel. No pondera por importancia del producto; eso se hace con el WAPE (que pesa por volumen).
 - **Cuantiles empíricos** en lugar de suponer una distribución. Se comprueba que la cobertura observada fuera de muestra se acerque a la nominal.
-- **Newsvendor:** Cu = margen + β × margen cruzado; Co = almacenamiento + α × costo unitario; τ = Cu / (Cu + Co).
+- **Newsvendor:** Cu = margen + β × margen cruzado; Co = almacenamiento + α × costo unitario; τ = Cu / (Cu + Co). Un producto con τ alto (por ejemplo, Tinto, 0.92) se pide de forma agresiva y uno con τ bajo (Jugo de Naranja, 0.64) de forma conservadora, más cerca de la mediana.
+- **Mejoras probadas y descartadas:** ensamble de modelos, modelo por segmento de volumen y variables adicionales (tamaño de tienda, ciudad, tendencia). Ninguna superó el umbral definido en el notebook 02.
 
 ## Supuestos y límites
 
-- **Parámetros que no vienen en los datos** y se declaran como supuestos: lead time (1 día), revisión (7 días), tránsito (0), MOQ y empaque (1), capacidad (sin límite), β = 25 % y α por producto (según vida útil de referencia). La sensibilidad en el notebook 03 muestra cuáles mueven más el resultado; α es el más influyente.
+- **Parámetros que no vienen en los datos** y se declaran como supuestos: lead time (1 día), revisión (7 días), tránsito (0), MOQ y empaque (1), capacidad (sin límite), β = 25 % y α por producto (según vida útil de referencia). La sensibilidad en el notebook 03 muestra cuáles mueven más el pedido: cada día de lead time mueve el pedido ≈ 12 a 14 % y pasar de α = 0 a α = 1 lo reduce 22.9 %.
 - **El inventario es una foto**, sin historia: no permite evaluar la política actual ni reconstruir el stock en el backtest. La simulación de costos asume que cada semana parte sin stock.
 - **Pocas semanas de historia:** no hay estacionalidad mensual o anual que aprender.
+- **Escala:** el modelo es global (un solo modelo para las 160 series SKU-tienda) y se validó con ese tamaño. Para miles de productos haría falta probar muestreo, un boosting más rápido o segmentación; no está probado.
 - **El EDA menciona gradient boosting en general;** la implementación usa `HistGradientBoostingRegressor` de scikit-learn (sin dependencias adicionales).
 - **Navegación en GitHub:** los enlaces internos del índice de los notebooks no funcionan en el visor de GitHub; usar el índice como lista de contenido.
 
