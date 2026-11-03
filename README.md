@@ -63,6 +63,8 @@ Los resultados quedan en `outputs/`:
 | `metricas_backtest.csv` | Error (WAPE) de cada modelo en el backtest | Seguimiento de calidad |
 | `simulacion_costos.csv` | Costo, nivel de servicio y sobrante de cada política de pedido | Caso de negocio |
 
+**Dos horizontes distintos.** `pronostico_semanal.csv` cubre los 7 días de la semana a pronosticar (1 al 7 de abril). `pedido_semana.csv` trabaja con el horizonte del pedido, que es el lead time más la revisión (1 + 7 = 8 días, ambos supuestos declarados): `demanda_media_horizonte` y `q_objetivo` son de 8 días. Por eso no son comparables con la media ni con el P90 del pronóstico semanal, y es normal que el objetivo de un producto quede por encima de su P90 semanal.
+
 Para conectarlo a otro sistema basta con alimentar los 4 CSV de entrada (ventas, inventario, catálogo y tiendas) y consumir `pedido_semana.csv`. La integración automática con un ERP o con el inventario no está incluida; es un siguiente paso.
 
 ## Resultados principales
